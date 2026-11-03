@@ -221,12 +221,12 @@ export default async function handler(req, res) {
     let geminiResponse;
     let lastNetworkError;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
 
       const timeout = setTimeout(
         () => controller.abort(),
-        17000
+        25000
       );
 
       try {
