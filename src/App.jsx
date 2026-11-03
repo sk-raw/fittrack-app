@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 
-const GEMINI_API_KEY = ""; // Buraya Gemini API anahtarını gir
+const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog"; // Buraya Gemini API anahtarını gir
 
 export default function App() {
   const [user, setUser] = useState(null);
