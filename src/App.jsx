@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft, Trash2, Check } from 'lucide-react';
 
 const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog";
 
@@ -17,6 +17,10 @@ export default function App() {
   const [workouts, setWorkouts] = useState([]);
   const [uploadStatus, setUploadStatus] = useState('');
   
+  // Yapay Zeka Onay / Düzenleme Modalı State'leri
+  const [pendingMeal, setPendingMeal] = useState(null);
+  const [showAIModal, setShowAIModal] = useState(false);
+
   const [targets, setTargets] = useState({ calories: 2500, protein: 150, carbs: 250, fat: 70 });
   const [isEditingTargets, setIsEditingTargets] = useState(false);
 
@@ -28,6 +32,34 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const fileInputRef = useRef(null);
+
+  // Kullanıcı değiştiğinde veya veriler güncellendiğinde localStorage senkronizasyonu
+  useEffect(() => {
+    if (user && !isAdmin) {
+      const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+      const currentUserData = existingUsers.find(u => u.email === user.email);
+      if (currentUserData) {
+        setMeals(currentUserData.meals || []);
+        setWorkouts(currentUserData.workouts || []);
+      }
+    }
+  }, [user]);
+
+  const syncUserDatadrawer = (newMeals, newWorkouts) => {
+    if (!user || isAdmin) return;
+    try {
+      const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+      const updatedUsers = existingUsers.map(u => {
+        if (u.email === user.email) {
+          return { ...u, meals: newMeals, workouts: newWorkouts };
+        }
+        return u;
+      });
+      localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+    } catch (e) {
+      console.error("Senkronizasyon Hatası:", e);
+    }
+  };
 
   // --- KAYIT OLMA İŞLEMİ ---
   const handleRegister = (e) => {
@@ -51,7 +83,9 @@ export default function App() {
     localStorage.setItem('fittrack_users', JSON.stringify(existingUsers));
 
     setUser(newUser);
-    setIsAdmin(email === 'samet@fittrack.com' || email === 'admin@fittrack.com');
+    setMeals([]);
+    setWorkouts([]);
+    setIsAdmin(false);
     setView('dashboard');
   };
 
@@ -96,7 +130,7 @@ export default function App() {
     setPassword('');
   };
 
-  // --- RESİM BOYUTUNU KÜÇÜLTME (SIKIŞTIRMA) ---
+  // --- RESİM BOYUTUNU KÜÇÜLTME ---
   const resizeImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -127,9 +161,7 @@ export default function App() {
           ctx.drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', quality));
         };
-        img.onerror = () => {
-          resolve(event.target.result);
-        };
+        img.onerror = () => resolve(event.target.result);
       };
       reader.onerror = () => resolve(null);
     });
@@ -141,7 +173,7 @@ export default function App() {
       if (!files || files.length === 0) return;
 
       setLoading(true);
-      setUploadStatus('Fotoğraf işleniyor ve analiz ediliyor...');
+      setUploadStatus('Fotoğraf analiz ediliyor...');
 
       const file = files[0];
       const optimizedBase64 = await resizeImage(file);
@@ -162,7 +194,6 @@ export default function App() {
 
   const processAI = async (base64Image) => {
     try {
-      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
       const base64Data = base64Image.split(',')[1];
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -171,7 +202,7 @@ export default function App() {
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: "Bu fotoğraftaki yemeği analiz et. Sadece şu formatta geçerli bir JSON objesi döndür, başka hiçbir açıklama yazma: {\"name\": \"Yemeğin Adı (Türkçe)\", \"calories\": gerçek_kalori_sayisi, \"protein\": protein_grami, \"carbs\": karbonhidrat_grami, \"fat\": yag_grami}" },
+              { text: "Bu fotoğraftaki yemeği çok dikkatli incele. Yemeğin doğru ve net Türkçe adını (Örn: Tavuk Dürüm, Hamburger, Mercimek Çorbası vb.) 'name' alanına yaz. Porsiyona göre gerçekçi kalori, protein, karbonhidrat ve yağ değerlerini hesapla. Sadece şu formatta JSON döndür, başka hiçbir şey yazma: {\"name\": \"Yemek Adı\", \"calories\": 450, \"protein\": 30, \"carbs\": 40, \"fat\": 15}" },
               { inline_data: { mime_type: "image/jpeg", data: base64Data } }
             ]
           }]
@@ -187,66 +218,36 @@ export default function App() {
       
       let aiResult;
       if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonString = rawText.substring(jsonStart, jsonEnd + 1);
-        aiResult = JSON.parse(jsonString);
+        aiResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
       } else {
-        throw new Error("Geçerli JSON bulunamadı");
+        throw new Error("JSON bulunamadı");
       }
       
-      const newMeal = { 
+      // Kullanıcının onaylaması için Modal'a gönder
+      setPendingMeal({
         name: aiResult.name || 'Özel Öğün',
-        calories: Number(aiResult.calories) || Math.floor(Math.random() * 300) + 300,
+        calories: Number(aiResult.calories) || 400,
         protein: Number(aiResult.protein) || 25,
         carbs: Number(aiResult.carbs) || 35,
         fat: Number(aiResult.fat) || 12,
-        id: Date.now() + Math.random(), 
-        date: selectedDate, 
-        image: base64Image 
-      };
-
-      setMeals(prevMeals => {
-        const updatedMeals = [...prevMeals, newMeal];
-        if (user && !isAdmin) {
-          try {
-            const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-            const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
-            localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
-          } catch (storageErr) {
-            console.error(storageErr);
-          }
-        }
-        return updatedMeals;
-      });
-      
-    } catch (error) {
-      console.error("AI Analiz Hatası:", error);
-      const randomNames = ['Ev Yapımı Yemek', 'Karışık Salata', 'Protein Tabağı', 'Lezzetli Menü'];
-      const randomCalories = [320, 410, 520, 380, 460];
-      
-      const fallbackMeal = {
-        id: Date.now() + Math.random(),
-        name: randomNames[Math.floor(Math.random() * randomNames.length)],
-        calories: randomCalories[Math.floor(Math.random() * randomCalories.length)],
-        protein: Math.floor(Math.random() * 20) + 20,
-        carbs: Math.floor(Math.random() * 30) + 25,
-        fat: Math.floor(Math.random() * 15) + 10,
         date: selectedDate,
         image: base64Image
-      };
-      
-      setMeals(prevMeals => {
-        const updatedMeals = [...prevMeals, fallbackMeal];
-        if (user && !isAdmin) {
-          try {
-            const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-            const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
-            localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
-          } catch (e) {
-            console.error(e);
-          }
-        }
-        return updatedMeals;
       });
+      setShowAIModal(true);
+
+    } catch (error) {
+      console.error("AI Analiz Hatası:", error);
+      // Hata durumunda varsayılan değerlerle modal aç
+      setPendingMeal({
+        name: 'Algılanan Yemek',
+        calories: 400,
+        protein: 25,
+        carbs: 35,
+        fat: 12,
+        date: selectedDate,
+        image: base64Image
+      });
+      setShowAIModal(true);
     } finally {
       setLoading(false);
       setUploadStatus('');
@@ -254,24 +255,33 @@ export default function App() {
     }
   };
 
+  // Modaldan gelen öğünü onaylayıp kaydetme
+  const handleConfirmMeal = () => {
+    if (!pendingMeal) return;
+    const newMeal = { ...pendingMeal, id: Date.now() + Math.random() };
+    const updatedMeals = [...meals, newMeal];
+    
+    setMeals(updatedMeals);
+    syncUserDatadrawer(updatedMeals, workouts);
+    setShowAIModal(false);
+    setPendingMeal(null);
+  };
+
+  // Öğün Silme Fonksiyonu
+  const handleDeleteMeal = (mealId) => {
+    const updatedMeals = meals.filter(m => m.id !== mealId);
+    setMeals(updatedMeals);
+    syncUserDatadrawer(updatedMeals, workouts);
+  };
+
   const handleAddWorkout = (e) => {
     e.preventDefault();
     if (!workoutData.name || !workoutData.calories) return;
     const newWorkout = { id: Date.now(), date: selectedDate, name: workoutData.name, calories: parseInt(workoutData.calories) };
+    const updatedWorkouts = [...workouts, newWorkout];
     
-    setWorkouts(prevWorkouts => {
-      const updatedWorkouts = [...prevWorkouts, newWorkout];
-      if (user && !isAdmin) {
-        try {
-          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
-          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      return updatedWorkouts;
-    });
+    setWorkouts(updatedWorkouts);
+    syncUserDatadrawer(meals, updatedWorkouts);
 
     setWorkoutData({ name: '', calories: '' });
     setShowWorkoutForm(false);
@@ -398,6 +408,81 @@ export default function App() {
           </div>
         )}
 
+        {/* YAPAY ZEKA DÜZENLEME / ONAY MODALI */}
+        {showAIModal && pendingMeal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+              <h3 className="text-lg font-bold text-white text-center">Yapay Zeka Analiz Sonucu</h3>
+              <div className="flex justify-center">
+                <img src={pendingMeal.image} alt="Yemek" className="w-24 h-24 object-cover rounded-xl border border-zinc-700 shadow-md" />
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">Yemek Adı</label>
+                  <input 
+                    type="text" 
+                    value={pendingMeal.name} 
+                    onChange={e => setPendingMeal({...pendingMeal, name: e.target.value})} 
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1">Kalori (kcal)</label>
+                    <input 
+                      type="number" 
+                      value={pendingMeal.calories} 
+                      onChange={e => setPendingMeal({...pendingMeal, calories: Number(e.target.value)})} 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1">Protein (g)</label>
+                    <input 
+                      type="number" 
+                      value={pendingMeal.protein} 
+                      onChange={e => setPendingMeal({...pendingMeal, protein: Number(e.target.value)})} 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1">Karb (g)</label>
+                    <input 
+                      type="number" 
+                      value={pendingMeal.carbs} 
+                      onChange={e => setPendingMeal({...pendingMeal, carbs: Number(e.target.value)})} 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1">Yağ (g)</label>
+                    <input 
+                      type="number" 
+                      value={pendingMeal.fat} 
+                      onChange={e => setPendingMeal({...pendingMeal, fat: Number(e.target.value)})} 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" 
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button 
+                  onClick={() => { setShowAIModal(false); setPendingMeal(null); }} 
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-xl text-sm font-semibold transition"
+                >
+                  İptal
+                </button>
+                <button 
+                  onClick={handleConfirmMeal} 
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 transition shadow-lg shadow-emerald-600/20"
+                >
+                  <Check className="w-4 h-4" /> Onayla & Ekle
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {view === 'admin' && isAdmin ? (
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-amber-500" /> Yönetici Paneli</h2>
@@ -517,14 +602,28 @@ export default function App() {
               })}
             </div>
 
-            {/* MAKRO VE HEDEF ÖZETİ */}
+            {/* MAKRO VE HEDEF ÖZETİ (Çakışma Sorunu Giderilmiş Tasarım) */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-5 relative">
-              <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-emerald-400 bg-zinc-950 rounded-full border border-zinc-800 transition">
-                <Settings className="w-4 h-4" />
-              </button>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-3xl font-black text-white">{netCalories} <span className="text-lg text-zinc-500 font-medium">/ {targets.calories} kcal</span></h2>
+                  <p className="text-sm text-emerald-500 font-medium mt-1">Net Kalori (Alınan - Yakılan)</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded-full border-4 border-zinc-800 flex items-center justify-center relative flex-shrink-0">
+                    <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                      <circle cx="28" cy="28" r="26" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-emerald-500" strokeDasharray="163" strokeDashoffset={163 - (163 * Math.min(netCalories/targets.calories, 1))} strokeLinecap="round" />
+                    </svg>
+                    <Flame className="w-6 h-6 text-emerald-500" />
+                  </div>
+                  <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="p-2.5 text-zinc-400 hover:text-emerald-400 bg-zinc-950 rounded-full border border-zinc-800 transition shadow-md">
+                    <Settings className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
 
               {isEditingTargets ? (
-                <div className="space-y-3 pt-2">
+                <div className="space-y-3 pt-2 border-t border-zinc-800">
                   <h3 className="text-white font-bold mb-2">Hedefleri Düzenle</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="text-xs text-zinc-400">Kalori</label><input type="number" value={targets.calories} onChange={e => setTargets({...targets, calories: Number(e.target.value)})} className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-sm text-white" /></div>
@@ -532,41 +631,27 @@ export default function App() {
                     <div><label className="text-xs text-zinc-400">Karb (g)</label><input type="number" value={targets.carbs} onChange={e => setTargets({...targets, carbs: Number(e.target.value)})} className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-sm text-white" /></div>
                     <div><label className="text-xs text-zinc-400">Yağ (g)</label><input type="number" value={targets.fat} onChange={e => setTargets({...targets, fat: Number(e.target.value)})} className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-sm text-white" /></div>
                   </div>
-                  <button onClick={() => setIsEditingTargets(false)} className="w-full bg-emerald-600 text-white rounded p-2 text-sm mt-2">Kaydet</button>
+                  <button onClick={() => setIsEditingTargets(false)} className="w-full bg-emerald-600 text-white rounded p-2 text-sm mt-2 font-semibold">Kaydet</button>
                 </div>
               ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-3xl font-black text-white">{netCalories} <span className="text-lg text-zinc-500 font-medium">/ {targets.calories} kcal</span></h2>
-                      <p className="text-sm text-emerald-500 font-medium mt-1">Net Kalori (Alınan - Yakılan)</p>
-                    </div>
-                    <div className="w-16 h-16 rounded-full border-4 border-zinc-800 flex items-center justify-center relative">
-                      <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                        <circle cx="28" cy="28" r="26" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-emerald-500" strokeDasharray="163" strokeDashoffset={163 - (163 * Math.min(netCalories/targets.calories, 1))} strokeLinecap="round" />
-                      </svg>
-                      <Flame className="w-6 h-6 text-emerald-500" />
-                    </div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-emerald-400">Protein</span><span className="text-zinc-400">{totalProtein}g / {targets.protein}g</span></div>
+                    <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${Math.min((totalProtein/targets.protein)*100, 100)}%` }}></div></div>
                   </div>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-emerald-400">Protein</span><span className="text-zinc-400">{totalProtein}g / {targets.protein}g</span></div>
-                      <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${Math.min((totalProtein/targets.protein)*100, 100)}%` }}></div></div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-amber-400">Karbonhidrat</span><span className="text-zinc-400">{totalCarbs}g / {targets.carbs}g</span></div>
-                      <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-amber-500" style={{ width: `${Math.min((totalCarbs/targets.carbs)*100, 100)}%` }}></div></div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-red-400">Yağ</span><span className="text-zinc-400">{totalFat}g / {targets.fat}g</span></div>
-                      <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-red-500" style={{ width: `${Math.min((totalFat/targets.fat)*100, 100)}%` }}></div></div>
-                    </div>
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-amber-400">Karbonhidrat</span><span className="text-zinc-400">{totalCarbs}g / {targets.carbs}g</span></div>
+                    <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-amber-500 transition-all duration-300" style={{ width: `${Math.min((totalCarbs/targets.carbs)*100, 100)}%` }}></div></div>
                   </div>
-                </>
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1"><span className="text-red-400">Yağ</span><span className="text-zinc-400">{totalFat}g / {targets.fat}g</span></div>
+                    <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden"><div className="h-full bg-red-500 transition-all duration-300" style={{ width: `${Math.min((totalFat/targets.fat)*100, 100)}%` }}></div></div>
+                  </div>
+                </div>
               )}
             </div>
 
-            {/* ÖĞÜNLER */}
+            {/* ÖĞÜNLER (Silme Butonlu) */}
             <div>
               <h3 className="text-lg font-bold text-white mb-3">Bugünkü Öğünler</h3>
               <div className="space-y-3">
@@ -574,13 +659,25 @@ export default function App() {
                   <div className="text-center p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-xl border-dashed"><p className="text-zinc-500 text-sm">Henüz öğün eklenmedi.</p></div>
                 ) : (
                   todaysMeals.map(meal => (
-                    <div key={meal.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex gap-3 items-center">
-                      {meal.image ? <img src={meal.image} alt="Yemek" className="w-14 h-14 object-cover rounded-lg bg-zinc-950" /> : <div className="w-14 h-14 rounded-lg bg-zinc-950 flex items-center justify-center"><Flame className="w-6 h-6 text-zinc-700" /></div>}
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-white text-sm">{meal.name}</h4>
+                    <div key={meal.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex gap-3 items-center group">
+                      {meal.image ? <img src={meal.image} alt="Yemek" className="w-14 h-14 object-cover rounded-lg bg-zinc-950 flex-shrink-0" /> : <div className="w-14 h-14 rounded-lg bg-zinc-950 flex items-center justify-center flex-shrink-0"><Flame className="w-6 h-6 text-zinc-700" /></div>}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-white text-sm truncate">{meal.name}</h4>
                         <p className="text-xs text-zinc-400 mt-1">P: {meal.protein}g • K: {meal.carbs}g • Y: {meal.fat}g</p>
                       </div>
-                      <div className="text-right"><span className="text-emerald-400 font-bold">{meal.calories}</span><span className="text-xs text-zinc-500 block">kcal</span></div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <span className="text-emerald-400 font-bold">{meal.calories}</span>
+                          <span className="text-xs text-zinc-500 block">kcal</span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteMeal(meal.id)}
+                          className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition"
+                          title="Öğünü Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
