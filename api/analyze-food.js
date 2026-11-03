@@ -126,7 +126,7 @@ export default async function handler(req, res) {
       const timeout = setTimeout(() => controller.abort(), 17_000);
       try {
         geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
           {
             method: 'POST',
             headers: {
