@@ -96,35 +96,43 @@ export default function App() {
     setPassword('');
   };
 
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
     setLoading(true);
-    setUploadStatus('Fotoğraflar yükleniyor ve analiz ediliyor...');
+    setUploadStatus('Fotoğraf işleniyor...');
 
-    for (const file of files) {
+    files.forEach(file => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
-        await processAI(reader.result);
+      reader.onload = async (uploadEvent) => {
+        const base64Image = uploadEvent.target.result;
+        await processAI(base64Image);
       };
-    }
+      reader.onerror = () => {
+        setLoading(false);
+        setUploadStatus('Dosya okunamadı.');
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const processAI = async (base64Image) => {
     try {
       let newMeal;
-      // Eğer API anahtarı girilmemişse veya boşsa demo sonuç üret
       if (!GEMINI_API_KEY || GEMINI_API_KEY === "BURAYA_API_ANAHTARINI_YAZ") {
+        // Demo veya anahtarsız kullanım için hızlı yanıt
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const demoOptions = [
+          { name: 'Izgara Tavuk ve Pilav', calories: 550, protein: 45, carbs: 50, fat: 15 },
+          { name: 'Ton Balıklı Salata', calories: 380, protein: 35, carbs: 12, fat: 18 },
+          { name: 'Yulaf Ezmesi ve Muz', calories: 320, protein: 12, carbs: 55, fat: 6 }
+        ];
+        const randomMeal = demoOptions[Math.floor(Math.random() * demoOptions.length)];
         newMeal = { 
           id: Date.now() + Math.random(), 
-          name: 'Izgara Tavuk ve Pilav (Demo AI)', 
-          calories: 550, 
-          protein: 45, 
-          carbs: 50, 
-          fat: 15, 
-          date: selectedDate, // O an takvimde seçili olan tarihe eklenir
+          ...randomMeal,
+          date: selectedDate, 
           image: base64Image 
         };
       } else {
@@ -145,19 +153,16 @@ export default function App() {
 
       setMeals(prevMeals => {
         const updatedMeals = [...prevMeals, newMeal];
-        
-        // Kullanıcı verisini localStorage'da güncelle
         if (user && !isAdmin) {
           const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
           const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
           localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
         }
-        
         return updatedMeals;
       });
       
     } catch (error) {
-      setUploadStatus(`Analiz Hatası: ${error.message}`);
+      console.error(error);
     } finally {
       setLoading(false);
       setUploadStatus('');
@@ -503,7 +508,7 @@ export default function App() {
 
               {showWorkoutForm && (
                 <form onSubmit={handleAddWorkout} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 space-y-3">
-                  <input type="text" placeholder="Antrenman (örn: Koşu, Ağırlık)" value={workoutData.name} onChange={e => setShowWorkoutForm({...workoutData, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
+                  <input type="text" placeholder="Antrenman (örn: Koşu, Ağırlık)" value={workoutData.name} onChange={e => setWorkoutData({...workoutData, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
                   <div className="flex gap-2">
                     <input type="number" placeholder="Yakılan Kalori" value={workoutData.calories} onChange={e => setWorkoutData({...workoutData, calories: e.target.value})} className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
                     <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 rounded-lg font-medium">Kaydet</button>
