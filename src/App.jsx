@@ -1,14 +1,15 @@
 import React, { useState, useRef } from 'react';
-import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus } from 'lucide-react';
+import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 
 const GEMINI_API_KEY = ""; // Buraya Gemini API anahtarını gir
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [view, setView] = useState('login'); // login, register, dashboard, admin
+  const [view, setView] = useState('login'); // login, register, dashboard, admin, adminUserDetail
   const [authError, setAuthError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedAdminUser, setSelectedAdminUser] = useState(null);
 
   // Günlük Veri ve Hedef State'leri
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -37,7 +38,6 @@ export default function App() {
       return;
     }
 
-    // Kayıtlı kullanıcıları localStorage'dan al
     const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
     const userExists = existingUsers.some(u => u.email === email);
 
@@ -46,12 +46,10 @@ export default function App() {
       return;
     }
 
-    // Yeni kullanıcıyı kaydet
-    const newUser = { email, password };
+    const newUser = { email, password, meals: [], workouts: [] };
     existingUsers.push(newUser);
     localStorage.setItem('fittrack_users', JSON.stringify(existingUsers));
 
-    // Otomatik giriş yap
     setUser(newUser);
     setIsAdmin(email === 'samet@fittrack.com' || email === 'admin@fittrack.com');
     setView('dashboard');
@@ -62,7 +60,6 @@ export default function App() {
     e.preventDefault();
     setAuthError('');
     
-    // Özel Admin / Test Hesapları ve Şifre Kontrolü (101055)
     if (email === 'samet@fittrack.com' || email === 'admin@fittrack.com') {
       if (password !== '101055') {
         setAuthError('Yönetici şifresi hatalı.');
@@ -75,7 +72,6 @@ export default function App() {
       return;
     }
 
-    // Kayıtlı kullanıcıları kontrol et
     const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
     const foundUser = existingUsers.find(u => u.email === email && u.password === password);
 
@@ -85,6 +81,8 @@ export default function App() {
     }
 
     setUser(foundUser);
+    setMeals(foundUser.meals || []);
+    setWorkouts(foundUser.workouts || []);
     setIsAdmin(false);
     setView('dashboard');
   };
@@ -92,6 +90,7 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setIsAdmin(false);
+    setSelectedAdminUser(null);
     setView('login');
     setEmail('');
     setPassword('');
@@ -121,26 +120,34 @@ export default function App() {
 
   const processAI = async (base64Image) => {
     try {
+      let newMeal;
       if (!GEMINI_API_KEY) {
-        const demoMeal = { id: Date.now(), name: 'Izgara Tavuk ve Pilav (Demo AI)', calories: 550, protein: 45, carbs: 50, fat: 15, date: selectedDate, image: base64Image };
-        setMeals(prev => [...prev, demoMeal]);
-        return;
+        newMeal = { id: Date.now(), name: 'Izgara Tavuk ve Pilav (Demo AI)', calories: 550, protein: 45, carbs: 50, fat: 15, date: selectedDate, image: base64Image };
+      } else {
+        const base64Data = base64Image.split(',')[1];
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver: {\"name\": \"Yemek Adı\", \"calories\": 100, \"protein\": 10, \"carbs\": 20, \"fat\": 5}" }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
+          })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        const aiResult = JSON.parse(data.candidates[0].content.parts[0].text);
+        newMeal = { ...aiResult, id: Date.now(), date: selectedDate, image: base64Image };
       }
 
-      const base64Data = base64Image.split(',')[1];
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver: {\"name\": \"Yemek Adı\", \"calories\": 100, \"protein\": 10, \"carbs\": 20, \"fat\": 5}" }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
-        })
-      });
+      const updatedMeals = [...meals, newMeal];
+      setMeals(updatedMeals);
 
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      
-      const aiResult = JSON.parse(data.candidates[0].content.parts[0].text);
-      setMeals(prev => [...prev, { ...aiResult, id: Date.now(), date: selectedDate, image: base64Image }]);
+      // Kullanıcı verisini localStorage'da güncelle
+      if (user && !isAdmin) {
+        const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+        const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
+        localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+      }
       
     } catch (error) {
       setUploadStatus(`Analiz Hatası: ${error.message}`);
@@ -150,9 +157,17 @@ export default function App() {
   const handleAddWorkout = (e) => {
     e.preventDefault();
     if (!workoutData.name || !workoutData.calories) return;
-    setWorkouts(prev => [...prev, { id: Date.now(), date: selectedDate, name: workoutData.name, calories: parseInt(workoutData.calories) }]);
+    const newWorkout = { id: Date.now(), date: selectedDate, name: workoutData.name, calories: parseInt(workoutData.calories) };
+    const updatedWorkouts = [...workouts, newWorkout];
+    setWorkouts(updatedWorkouts);
     setWorkoutData({ name: '', calories: '' });
     setShowWorkoutForm(false);
+
+    if (user && !isAdmin) {
+      const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+      const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
+      localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+    }
   };
 
   const todaysMeals = meals.filter(m => m.date === selectedDate);
@@ -239,17 +254,25 @@ export default function App() {
     );
   }
 
-  // --- ANA UYGULAMA EKRANI ---
+  // --- ANA UYGULAMA / YÖNETİCİ EKRANI ---
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-300 font-sans pb-32 selection:bg-emerald-500/30">
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-4 py-3">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Activity className="w-6 h-6 text-emerald-500" />
-            <span className="font-bold text-white text-lg tracking-tight">FitTrack</span>
+            {view === 'adminUserDetail' ? (
+              <button onClick={() => { setView('admin'); setSelectedAdminUser(null); }} className="p-1 text-zinc-400 hover:text-white">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            ) : (
+              <Activity className="w-6 h-6 text-emerald-500" />
+            )}
+            <span className="font-bold text-white text-lg tracking-tight">
+              {view === 'adminUserDetail' ? 'Kullanıcı Detayı' : 'FitTrack'}
+            </span>
           </div>
           <div className="flex items-center gap-3">
-            {isAdmin && (
+            {isAdmin && view !== 'adminUserDetail' && (
               <button onClick={() => setView(view === 'admin' ? 'dashboard' : 'admin')} className="p-2 text-amber-500 bg-amber-500/10 rounded-full">
                 <Shield className="w-5 h-5" />
               </button>
@@ -267,7 +290,7 @@ export default function App() {
             <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-amber-500" /> Yönetici Paneli</h2>
             
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Kayıtlı Kullanıcılar</h3>
+              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Kayıtlı Kullanıcılar ve Albümler</h3>
               
               {(() => {
                 const regUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
@@ -277,19 +300,91 @@ export default function App() {
                 return (
                   <div className="space-y-2">
                     {regUsers.map((u, index) => (
-                      <div key={index} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
+                      <div 
+                        key={index} 
+                        onClick={() => { setSelectedAdminUser(u); setView('adminUserDetail'); }}
+                        className="bg-zinc-950 border border-zinc-800 hover:border-emerald-500/50 cursor-pointer rounded-lg p-3 flex items-center justify-between transition-all"
+                      >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-bold text-sm">
+                          <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-bold text-sm">
                             {u.email.charAt(0).toUpperCase()}
                           </div>
-                          <span className="text-sm text-white font-medium">{u.email}</span>
+                          <div>
+                            <span className="text-sm text-white font-medium block">{u.email}</span>
+                            <span className="text-xs text-zinc-500">{(u.meals || []).length} Öğün • {(u.workouts || []).length} Antrenman</span>
+                          </div>
                         </div>
-                        <span className="text-xs text-zinc-500 bg-zinc-900 px-2 py-1 rounded">Standart Üye</span>
+                        <ChevronRight className="w-5 h-5 text-zinc-600" />
                       </div>
                     ))}
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        ) : view === 'adminUserDetail' && selectedAdminUser ? (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <h3 className="text-sm text-zinc-400 uppercase tracking-wider mb-1">İncelenen Kullanıcı</h3>
+              <p className="text-lg font-bold text-white">{selectedAdminUser.email}</p>
+            </div>
+
+            {/* KULLANICININ ÖĞÜNLERİ VE ALBÜMÜ */}
+            <div>
+              <h3 className="text-lg font-bold text-white mb-3">Yemek Albümü & Öğünler</h3>
+              <div className="space-y-3">
+                {(!selectedAdminUser.meals || selectedAdminUser.meals.length === 0) ? (
+                  <div className="text-center p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-xl border-dashed">
+                    <p className="text-zinc-500 text-sm">Bu kullanıcının kayıtlı öğünü bulunmuyor.</p>
+                  </div>
+                ) : (
+                  selectedAdminUser.meals.map(meal => (
+                    <div key={meal.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex gap-3 items-center">
+                      {meal.image ? (
+                        <img src={meal.image} alt="Yemek" className="w-14 h-14 object-cover rounded-lg bg-zinc-950" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-zinc-950 flex items-center justify-center"><Flame className="w-6 h-6 text-zinc-700" /></div>
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-white text-sm">{meal.name}</h4>
+                        <p className="text-xs text-zinc-400 mt-1">Tarih: {meal.date} • P: {meal.protein}g • K: {meal.carbs}g • Y: {meal.fat}g</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-emerald-400 font-bold">{meal.calories}</span>
+                        <span className="text-xs text-zinc-500 block">kcal</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* KULLANICININ ANTRENMANLARI */}
+            <div>
+              <h3 className="text-lg font-bold text-white mb-3">Antrenman Geçmişi</h3>
+              <div className="space-y-3">
+                {(!selectedAdminUser.workouts || selectedAdminUser.workouts.length === 0) ? (
+                  <div className="text-center p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-xl border-dashed">
+                    <p className="text-zinc-500 text-sm">Bu kullanıcının kayıtlı antrenmanı bulunmuyor.</p>
+                  </div>
+                ) : (
+                  selectedAdminUser.workouts.map(workout => (
+                    <div key={workout.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex gap-3 items-center">
+                      <div className="w-12 h-12 rounded-lg bg-zinc-950 flex items-center justify-center border border-zinc-800">
+                        <Dumbbell className="w-5 h-5 text-amber-500" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-white text-sm">{workout.name}</h4>
+                        <p className="text-xs text-zinc-500 mt-0.5">Tarih: {workout.date}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-amber-400 font-bold">-{workout.calories}</span>
+                        <span className="text-xs text-zinc-500 block">kcal</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -416,7 +511,7 @@ export default function App() {
         )}
       </main>
 
-      {view === 'dashboard' && (
+      {view === 'dashboard' && !isAdmin && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pointer-events-none">
           <div className="max-w-md mx-auto flex justify-center gap-4 pointer-events-auto">
             <input type="file" accept="image/*" multiple className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
