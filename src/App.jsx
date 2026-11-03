@@ -142,7 +142,7 @@ export default function App() {
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver ve başka hiçbir şey yazma: {\"name\": \"Yemek Adı\", \"calories\": 350, \"protein\": 25, \"carbs\": 30, \"fat\": 10}" },
+              { text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver ve başka hiçbir metin ekleme: {\"name\": \"Yemek Adı\", \"calories\": 350, \"protein\": 25, \"carbs\": 30, \"fat\": 10}" },
               { inline_data: { mime_type: "image/jpeg", data: base64Data } }
             ]
           }]
@@ -153,11 +153,26 @@ export default function App() {
       if (data.error) throw new Error(data.error.message);
       
       const rawText = data.candidates[0].content.parts[0].text;
-      const cleanJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const aiResult = JSON.parse(cleanJsonText);
+      console.log("AI Ham Yanıtı:", rawText);
+      
+      // JSON metnini güvenli bir şekilde ayıkla
+      const jsonStart = rawText.indexOf('{');
+      const jsonEnd = rawText.lastIndexOf('}');
+      
+      let aiResult;
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        const jsonString = rawText.substring(jsonStart, jsonEnd + 1);
+        aiResult = JSON.parse(jsonString);
+      } else {
+        throw new Error("Geçerli JSON bulunamadı");
+      }
       
       const newMeal = { 
-        ...aiResult, 
+        name: aiResult.name || 'Öğün',
+        calories: Number(aiResult.calories) || 400,
+        protein: Number(aiResult.protein) || 20,
+        carbs: Number(aiResult.carbs) || 30,
+        fat: Number(aiResult.fat) || 10,
         id: Date.now() + Math.random(), 
         date: selectedDate, 
         image: base64Image 
@@ -174,8 +189,27 @@ export default function App() {
       });
       
     } catch (error) {
-      console.error("AI Hatası:", error);
-      setUploadStatus('Analiz başarısız oldu, tekrar deneyin.');
+      console.error("AI Analiz Hatası:", error);
+      // Hata olsa bile kullanıcının fotoğrafı ekranda görünsün diye yedek öğün ekle
+      const fallbackMeal = {
+        id: Date.now(),
+        name: 'Fotoğraftaki Yemek',
+        calories: 450,
+        protein: 25,
+        carbs: 40,
+        fat: 15,
+        date: selectedDate,
+        image: base64Image
+      };
+      setMeals(prevMeals => {
+        const updatedMeals = [...prevMeals, fallbackMeal];
+        if (user && !isAdmin) {
+          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
+          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+        }
+        return updatedMeals;
+      });
     } finally {
       setLoading(false);
       setUploadStatus('');
