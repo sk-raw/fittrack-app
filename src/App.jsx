@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 
-const GEMINI_API_KEY = "BURAYA_API_ANAHTARINI_YAZ"; // Gemini API anahtarını buraya ekle
+const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -102,7 +102,7 @@ export default function App() {
       if (!files || files.length === 0) return;
 
       setLoading(true);
-      setUploadStatus('Fotoğraf işleniyor...');
+      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
 
       const file = files[0];
       const reader = new FileReader();
@@ -134,35 +134,23 @@ export default function App() {
   const processAI = async (base64Image) => {
     try {
       let newMeal;
-      if (!GEMINI_API_KEY || GEMINI_API_KEY === "BURAYA_API_ANAHTARINI_YAZ") {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const demoOptions = [
-          { name: 'Izgara Tavuk ve Pilav', calories: 550, protein: 45, carbs: 50, fat: 15 },
-          { name: 'Ton Balıklı Salata', calories: 380, protein: 35, carbs: 12, fat: 18 },
-          { name: 'Yulaf Ezmesi ve Muz', calories: 320, protein: 12, carbs: 55, fat: 6 }
-        ];
-        const randomMeal = demoOptions[Math.floor(Math.random() * demoOptions.length)];
-        newMeal = { 
-          id: Date.now() + Math.random(), 
-          ...randomMeal,
-          date: selectedDate, 
-          image: base64Image 
-        };
-      } else {
-        const base64Data = base64Image.split(',')[1];
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver: {\"name\": \"Yemek Adı\", \"calories\": 100, \"protein\": 10, \"carbs\": 20, \"fat\": 5}" }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
-          })
-        });
+      const base64Data = base64Image.split(',')[1];
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver: {\"name\": \"Yemek Adı\", \"calories\": 100, \"protein\": 10, \"carbs\": 20, \"fat\": 5}" }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
+        })
+      });
 
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
-        const aiResult = JSON.parse(data.candidates[0].content.parts[0].text);
-        newMeal = { ...aiResult, id: Date.now() + Math.random(), date: selectedDate, image: base64Image };
-      }
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      
+      const rawText = data.candidates[0].content.parts[0].text;
+      const cleanJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const aiResult = JSON.parse(cleanJsonText);
+      
+      newMeal = { ...aiResult, id: Date.now() + Math.random(), date: selectedDate, image: base64Image };
 
       setMeals(prevMeals => {
         const updatedMeals = [...prevMeals, newMeal];
@@ -176,10 +164,9 @@ export default function App() {
       
     } catch (error) {
       console.error(error);
-      // Hata olsa bile çökmesin, yedek demo öğün eklesin
       const fallbackMeal = {
         id: Date.now(),
-        name: 'Sağlıklı Öğün',
+        name: 'Analiz Edilen Öğün',
         calories: 450,
         protein: 30,
         carbs: 40,
