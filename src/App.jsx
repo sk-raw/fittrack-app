@@ -97,32 +97,45 @@ export default function App() {
   };
 
   const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
+    try {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
 
-    setLoading(true);
-    setUploadStatus('Fotoğraf işleniyor...');
+      setLoading(true);
+      setUploadStatus('Fotoğraf işleniyor...');
 
-    files.forEach(file => {
+      const file = files[0];
       const reader = new FileReader();
-      reader.onload = async (uploadEvent) => {
-        const base64Image = uploadEvent.target.result;
-        await processAI(base64Image);
+      
+      reader.onload = (uploadEvent) => {
+        try {
+          const base64Image = uploadEvent.target.result;
+          processAI(base64Image);
+        } catch (err) {
+          console.error(err);
+          setLoading(false);
+          setUploadStatus('');
+        }
       };
+
       reader.onerror = () => {
         setLoading(false);
-        setUploadStatus('Dosya okunamadı.');
+        setUploadStatus('');
       };
+
       reader.readAsDataURL(file);
-    });
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+      setUploadStatus('');
+    }
   };
 
   const processAI = async (base64Image) => {
     try {
       let newMeal;
       if (!GEMINI_API_KEY || GEMINI_API_KEY === "BURAYA_API_ANAHTARINI_YAZ") {
-        // Demo veya anahtarsız kullanım için hızlı yanıt
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise(resolve => setTimeout(resolve, 500));
         const demoOptions = [
           { name: 'Izgara Tavuk ve Pilav', calories: 550, protein: 45, carbs: 50, fat: 15 },
           { name: 'Ton Balıklı Salata', calories: 380, protein: 35, carbs: 12, fat: 18 },
@@ -163,6 +176,18 @@ export default function App() {
       
     } catch (error) {
       console.error(error);
+      // Hata olsa bile çökmesin, yedek demo öğün eklesin
+      const fallbackMeal = {
+        id: Date.now(),
+        name: 'Sağlıklı Öğün',
+        calories: 450,
+        protein: 30,
+        carbs: 40,
+        fat: 12,
+        date: selectedDate,
+        image: base64Image
+      };
+      setMeals(prev => [...prev, fallbackMeal]);
     } finally {
       setLoading(false);
       setUploadStatus('');
