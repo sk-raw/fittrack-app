@@ -33,7 +33,6 @@ export default function App() {
   const [password, setPassword] = useState('');
   const fileInputRef = useRef(null);
 
-  // Kullanıcı değiştiğinde veya veriler güncellendiğinde localStorage senkronizasyonu
   useEffect(() => {
     if (user && !isAdmin) {
       const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
@@ -61,7 +60,6 @@ export default function App() {
     }
   };
 
-  // --- KAYIT OLMA İŞLEMİ ---
   const handleRegister = (e) => {
     e.preventDefault();
     setAuthError('');
@@ -89,7 +87,6 @@ export default function App() {
     setView('dashboard');
   };
 
-  // --- GİRİŞ YAPMA İŞLEMİ ---
   const handleLogin = (e) => {
     e.preventDefault();
     setAuthError('');
@@ -130,7 +127,6 @@ export default function App() {
     setPassword('');
   };
 
-  // --- RESİM BOYUTUNU KÜÇÜLTME ---
   const resizeImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -173,7 +169,7 @@ export default function App() {
       if (!files || files.length === 0) return;
 
       setLoading(true);
-      setUploadStatus('Fotoğraf analiz ediliyor...');
+      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
 
       const file = files[0];
       const optimizedBase64 = await resizeImage(file);
@@ -202,7 +198,7 @@ export default function App() {
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: "Bu fotoğraftaki yemeği çok dikkatli incele. Yemeğin doğru ve net Türkçe adını (Örn: Tavuk Dürüm, Hamburger, Mercimek Çorbası vb.) 'name' alanına yaz. Porsiyona göre gerçekçi kalori, protein, karbonhidrat ve yağ değerlerini hesapla. Sadece şu formatta JSON döndür, başka hiçbir şey yazma: {\"name\": \"Yemek Adı\", \"calories\": 450, \"protein\": 30, \"carbs\": 40, \"fat\": 15}" },
+              { text: "Bu fotoğraftaki yemeği analiz et. Yemeğin adını Türkçe olarak 'name' alanına yaz. Kalori, protein, karbonhidrat ve yağ değerlerini porsiyona göre hesapla. Yanıtı SADECE şu formatta JSON olarak ver, başka hiçbir metin veya markdown ekleme: {\"name\": \"Yemek Adı\", \"calories\": 450, \"protein\": 30, \"carbs\": 40, \"fat\": 15}" },
               { inline_data: { mime_type: "image/jpeg", data: base64Data } }
             ]
           }]
@@ -213,19 +209,14 @@ export default function App() {
       if (data.error) throw new Error(data.error.message);
       
       const rawText = data.candidates[0].content.parts[0].text;
-      const jsonStart = rawText.indexOf('{');
-      const jsonEnd = rawText.lastIndexOf('}');
+      console.log("Gemini Ham Yanıtı:", rawText);
+
+      // JSON metnini güvenli temizleme ve parse etme
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const aiResult = JSON.parse(cleanJson);
       
-      let aiResult;
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        aiResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
-      } else {
-        throw new Error("JSON bulunamadı");
-      }
-      
-      // Kullanıcının onaylaması için Modal'a gönder
       setPendingMeal({
-        name: aiResult.name || 'Özel Öğün',
+        name: aiResult.name || 'Yemek',
         calories: Number(aiResult.calories) || 400,
         protein: Number(aiResult.protein) || 25,
         carbs: Number(aiResult.carbs) || 35,
@@ -236,10 +227,10 @@ export default function App() {
       setShowAIModal(true);
 
     } catch (error) {
-      console.error("AI Analiz Hatası:", error);
-      // Hata durumunda varsayılan değerlerle modal aç
+      console.error("Gemini İstek Hatası:", error);
+      // Rastgele değerler yerine kullanıcının düzenleyebileceği boş/varsayılan şablon sunuyoruz
       setPendingMeal({
-        name: 'Algılanan Yemek',
+        name: 'Fotoğraftaki Yemek (Düzenleyin)',
         calories: 400,
         protein: 25,
         carbs: 35,
@@ -255,7 +246,6 @@ export default function App() {
     }
   };
 
-  // Modaldan gelen öğünü onaylayıp kaydetme
   const handleConfirmMeal = () => {
     if (!pendingMeal) return;
     const newMeal = { ...pendingMeal, id: Date.now() + Math.random() };
@@ -267,7 +257,6 @@ export default function App() {
     setPendingMeal(null);
   };
 
-  // Öğün Silme Fonksiyonu
   const handleDeleteMeal = (mealId) => {
     const updatedMeals = meals.filter(m => m.id !== mealId);
     setMeals(updatedMeals);
@@ -297,7 +286,6 @@ export default function App() {
   const burnedCalories = todaysWorkouts.reduce((acc, workout) => acc + workout.calories, 0);
   const netCalories = Math.max(0, totalCalories - burnedCalories);
 
-  // --- GİRİŞ EKRANI ---
   if (view === 'login') {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
@@ -334,7 +322,6 @@ export default function App() {
     );
   }
 
-  // --- KAYIT OLMA EKRANI ---
   if (view === 'register') {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
@@ -371,7 +358,6 @@ export default function App() {
     );
   }
 
-  // --- ANA UYGULAMA / YÖNETİCİ EKRANI ---
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-300 font-sans pb-32 selection:bg-emerald-500/30">
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-4 py-3">
@@ -408,7 +394,6 @@ export default function App() {
           </div>
         )}
 
-        {/* YAPAY ZEKA DÜZENLEME / ONAY MODALI */}
         {showAIModal && pendingMeal && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
@@ -527,7 +512,6 @@ export default function App() {
               <p className="text-lg font-bold text-white">{selectedAdminUser.email}</p>
             </div>
 
-            {/* KULLANICININ ÖĞÜNLERİ VE ALBÜMÜ */}
             <div>
               <h3 className="text-lg font-bold text-white mb-3">Yemek Albümü & Öğünler</h3>
               <div className="space-y-3">
@@ -557,7 +541,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* KULLANICININ ANTRENMANLARI */}
             <div>
               <h3 className="text-lg font-bold text-white mb-3">Antrenman Geçmişi</h3>
               <div className="space-y-3">
@@ -587,7 +570,6 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* TAKVİM */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
               {[...Array(7)].map((_, i) => {
                 const d = new Date();
@@ -602,7 +584,6 @@ export default function App() {
               })}
             </div>
 
-            {/* MAKRO VE HEDEF ÖZETİ (Çakışma Sorunu Giderilmiş Tasarım) */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-5 relative">
               <div className="flex items-start justify-between">
                 <div>
@@ -651,7 +632,6 @@ export default function App() {
               )}
             </div>
 
-            {/* ÖĞÜNLER (Silme Butonlu) */}
             <div>
               <h3 className="text-lg font-bold text-white mb-3">Bugünkü Öğünler</h3>
               <div className="space-y-3">
@@ -684,7 +664,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* ANTRENMANLAR */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-bold text-white">Bugünkü Antrenmanlar</h3>
