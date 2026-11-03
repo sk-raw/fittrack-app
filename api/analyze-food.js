@@ -1,4 +1,5 @@
-const DEFAULT_MODEL = 'gemini-3.8-flash';
+const DEFAULT_MODEL = "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 const MAX_BASE64_CHARS = 3_600_000;
 
 const foodJsonSchema = {
