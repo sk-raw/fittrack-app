@@ -261,7 +261,32 @@ export default function App() {
         {view === 'admin' && isAdmin ? (
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-amber-500" /> Yönetici Paneli</h2>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400">Sistem yöneticisi paneline hoş geldiniz. Kayıtlı kullanıcı verileri burada yönetilebilir.</div>
+            
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Kayıtlı Kullanıcılar</h3>
+              
+              {(() => {
+                const regUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+                if (regUsers.length === 0) {
+                  return <p className="text-sm text-zinc-500">Henüz kayıtlı normal kullanıcı bulunmuyor.</p>;
+                }
+                return (
+                  <div className="space-y-2">
+                    {regUsers.map((u, index) => (
+                      <div key={index} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-bold text-sm">
+                            {u.email.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm text-white font-medium">{u.email}</span>
+                        </div>
+                        <span className="text-xs text-zinc-500 bg-zinc-900 px-2 py-1 rounded">Standart Üye</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         ) : (
           <>
