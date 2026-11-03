@@ -65,7 +65,7 @@ export default function App() {
     // Özel Admin / Test Hesapları ve Şifre Kontrolü (101055)
     if (email === 'samet@fittrack.com' || email === 'admin@fittrack.com') {
       if (password !== '101055') {
-        setAuthError('Yönetici şifresi hatalı (Örn: 101055).');
+        setAuthError('Yönetici şifresi hatalı.');
         return;
       }
       const adminUser = { email };
