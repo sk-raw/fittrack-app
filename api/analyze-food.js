@@ -226,7 +226,7 @@ export default async function handler(req, res) {
 
       const timeout = setTimeout(
         () => controller.abort(),
-        25000
+        60000
       );
 
       try {
