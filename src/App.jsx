@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft, Trash2, Check } from 'lucide-react';
 
-const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog";
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -16,6 +14,7 @@ export default function App() {
   const [meals, setMeals] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [analysisError, setAnalysisError] = useState('');
   
   // Yapay Zeka Onay / Düzenleme Modalı State'leri
   const [pendingMeal, setPendingMeal] = useState(null);
@@ -127,118 +126,67 @@ export default function App() {
     setPassword('');
   };
 
-  const resizeImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
-    return new Promise((resolve) => {
+  // Fotoğrafı JPEG'e dönüştürür ve boyutunu küçültür.
+  // Başarısız olursa orijinal görseli yanlış MIME türüyle göndermek yerine hata verir.
+  const resizeImage = (file, maxWidth = 1024, maxHeight = 1024, quality = 0.82) => {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type?.startsWith('image/')) {
+        reject(new Error('Lütfen geçerli bir fotoğraf dosyası seçin.'));
+        return;
+      }
+
       const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
+      reader.onerror = () => reject(new Error('Fotoğraf okunamadı. Başka bir fotoğraf deneyin.'));
+      reader.onload = () => {
         const img = new Image();
-        img.src = event.target.result;
+        img.onerror = () => reject(new Error('Fotoğraf açılamadı. JPG veya PNG formatında deneyin.'));
         img.onload = () => {
-          let width = img.width;
-          let height = img.height;
+          try {
+            const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+            const width = Math.max(1, Math.round(img.width * scale));
+            const height = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
 
-          if (width > height) {
-            if (width > maxWidth) {
-              height *= maxWidth / width;
-              width = maxWidth;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Fotoğraf dönüştürülemedi.');
+
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', quality);
+            if (!dataUrl || !dataUrl.startsWith('data:image/jpeg;base64,')) {
+              throw new Error('Fotoğraf JPEG formatına dönüştürülemedi.');
             }
-          } else {
-            if (height > maxHeight) {
-              width *= maxHeight / height;
-              height = maxHeight;
-            }
+            resolve({ dataUrl, mimeType: 'image/jpeg' });
+          } catch (error) {
+            reject(error);
           }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
         };
-        img.onerror = () => resolve(event.target.result);
+        img.src = reader.result;
       };
-      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
     });
   };
 
   const handleFileUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setAnalysisError('');
+    setLoading(true);
+
     try {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
+      setUploadStatus('Fotoğraf hazırlanıyor...');
+      const optimizedImage = await resizeImage(files[0]);
 
-      setLoading(true);
-      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
-
-      const file = files[0];
-      const optimizedBase64 = await resizeImage(file);
-      
-      if (!optimizedBase64) {
-        setLoading(false);
-        setUploadStatus('');
-        return;
-      }
-
-      await processAI(optimizedBase64);
+      setUploadStatus('Fotoğraf Gemini AI tarafından analiz ediliyor...');
+      await processAI(optimizedImage);
     } catch (err) {
-      console.error("Yükleme Hatası:", err);
-      setLoading(false);
-      setUploadStatus('');
-    }
-  };
-
-  const processAI = async (base64Image) => {
-    try {
-      const base64Data = base64Image.split(',')[1];
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: "Bu fotoğraftaki yemeği analiz et. Yemeğin adını Türkçe olarak 'name' alanına yaz. Kalori, protein, karbonhidrat ve yağ değerlerini porsiyona göre hesapla. Yanıtı SADECE şu formatta JSON olarak ver, başka hiçbir metin veya markdown ekleme: {\"name\": \"Yemek Adı\", \"calories\": 450, \"protein\": 30, \"carbs\": 40, \"fat\": 15}" },
-              { inline_data: { mime_type: "image/jpeg", data: base64Data } }
-            ]
-          }]
-        })
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      
-      const rawText = data.candidates[0].content.parts[0].text;
-      console.log("Gemini Ham Yanıtı:", rawText);
-
-      // JSON metnini güvenli temizleme ve parse etme
-      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const aiResult = JSON.parse(cleanJson);
-      
-      setPendingMeal({
-        name: aiResult.name || 'Yemek',
-        calories: Number(aiResult.calories) || 400,
-        protein: Number(aiResult.protein) || 25,
-        carbs: Number(aiResult.carbs) || 35,
-        fat: Number(aiResult.fat) || 12,
-        date: selectedDate,
-        image: base64Image
-      });
-      setShowAIModal(true);
-
-    } catch (error) {
-      console.error("Gemini İstek Hatası:", error);
-      // Rastgele değerler yerine kullanıcının düzenleyebileceği boş/varsayılan şablon sunuyoruz
-      setPendingMeal({
-        name: 'Fotoğraftaki Yemek (Düzenleyin)',
-        calories: 400,
-        protein: 25,
-        carbs: 35,
-        fat: 12,
-        date: selectedDate,
-        image: base64Image
-      });
-      setShowAIModal(true);
+      console.error('Fotoğraf analiz/yükleme hatası:', err);
+      setAnalysisError(err.message || 'Fotoğraf analiz edilemedi. Lütfen tekrar deneyin.');
     } finally {
       setLoading(false);
       setUploadStatus('');
@@ -246,8 +194,59 @@ export default function App() {
     }
   };
 
+  const processAI = async ({ dataUrl, mimeType }) => {
+    const base64Data = dataUrl.split(',')[1];
+    if (!base64Data) throw new Error('Fotoğraf verisi okunamadı.');
+
+    // API anahtarı tarayıcıya gönderilmez. İstek kendi sunucu API rotamıza gider.
+    const response = await fetch('/api/analyze-food', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64Data, mimeType })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || `Analiz servisi hata verdi (HTTP ${response.status}).`);
+    }
+
+    const aiResult = result.meal;
+    if (!aiResult || aiResult.isFood !== true) {
+      throw new Error(aiResult?.note || 'Fotoğrafta analiz edilebilecek bir yemek tespit edilemedi.');
+    }
+
+    const numericFields = ['calories', 'protein', 'carbs', 'fat', 'portionGrams'];
+    for (const field of numericFields) {
+      if (typeof aiResult[field] !== 'number' || !Number.isFinite(aiResult[field]) || aiResult[field] < 0) {
+        throw new Error(`Yapay zekâ geçerli bir ${field} değeri döndürmedi. Lütfen tekrar deneyin.`);
+      }
+    }
+    if (!aiResult.name || typeof aiResult.name !== 'string' || aiResult.portionGrams <= 0) {
+      throw new Error('Yapay zekâ yemek adını veya porsiyon miktarını belirleyemedi.');
+    }
+
+    setPendingMeal({
+      name: aiResult.name.trim(),
+      calories: aiResult.calories,
+      protein: aiResult.protein,
+      carbs: aiResult.carbs,
+      fat: aiResult.fat,
+      portionGrams: aiResult.portionGrams,
+      confidence: aiResult.confidence,
+      note: aiResult.note || '',
+      date: selectedDate,
+      image: dataUrl
+    });
+    setShowAIModal(true);
+  };
+
   const handleConfirmMeal = () => {
     if (!pendingMeal) return;
+    const requiredNumbers = ['calories', 'protein', 'carbs', 'fat'];
+    if (!pendingMeal.name?.trim() || requiredNumbers.some(key => !Number.isFinite(Number(pendingMeal[key])) || Number(pendingMeal[key]) < 0)) {
+      setAnalysisError('Öğün bilgileri geçerli değil. Lütfen değerleri kontrol edin.');
+      return;
+    }
     const newMeal = { ...pendingMeal, id: Date.now() + Math.random() };
     const updatedMeals = [...meals, newMeal];
     
@@ -394,6 +393,13 @@ export default function App() {
           </div>
         )}
 
+        {analysisError && (
+          <div role="alert" className="p-3 bg-red-950/40 border border-red-900/60 rounded-xl text-red-300 text-sm flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{analysisError}</span>
+          </div>
+        )}
+
         {showAIModal && pendingMeal && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
@@ -401,6 +407,13 @@ export default function App() {
               <div className="flex justify-center">
                 <img src={pendingMeal.image} alt="Yemek" className="w-24 h-24 object-cover rounded-xl border border-zinc-700 shadow-md" />
               </div>
+              {pendingMeal.portionGrams > 0 && (
+                <p className="text-center text-xs text-zinc-400">
+                  Tahmini porsiyon: {pendingMeal.portionGrams} g
+                  {Number.isFinite(pendingMeal.confidence) ? ` • Görsel güveni: %${Math.round(pendingMeal.confidence * 100)}` : ''}
+                </p>
+              )}
+              {pendingMeal.note && <p className="text-xs text-zinc-500 text-center">{pendingMeal.note}</p>}
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-zinc-400 block mb-1">Yemek Adı</label>
@@ -452,7 +465,7 @@ export default function App() {
               </div>
               <div className="flex gap-2 pt-2">
                 <button 
-                  onClick={() => { setShowAIModal(false); setPendingMeal(null); }} 
+                  onClick={() => { setShowAIModal(false); setPendingMeal(null); setAnalysisError(''); }} 
                   className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-xl text-sm font-semibold transition"
                 >
                   İptal
