@@ -128,7 +128,7 @@ export default function App() {
 
   // Fotoğrafı JPEG'e dönüştürür ve boyutunu küçültür.
   // Başarısız olursa orijinal görseli yanlış MIME türüyle göndermek yerine hata verir.
-  const resizeImage = (file, maxWidth = 1024, maxHeight = 1024, quality = 0.82) => {
+  const resizeImage = (file, maxWidth = 900, maxHeight = 900, quality = 0.72) => {
     return new Promise((resolve, reject) => {
       if (!file || !file.type?.startsWith('image/')) {
         reject(new Error('Lütfen geçerli bir fotoğraf dosyası seçin.'));
@@ -207,6 +207,12 @@ export default function App() {
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Vercel analiz API rotası bulunamadı. Proje ana klasöründe api/analyze-food.js dosyasının bulunduğunu kontrol edip yeniden dağıtın.');
+      }
+      if (response.status === 413) {
+        throw new Error('Fotoğraf Vercel istek sınırını aşıyor. Daha küçük bir fotoğraf deneyin.');
+      }
       throw new Error(result.error || `Analiz servisi hata verdi (HTTP ${response.status}).`);
     }
 
