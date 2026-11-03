@@ -96,36 +96,65 @@ export default function App() {
     setPassword('');
   };
 
-  const handleFileUpload = (e) => {
+  // --- RESİM BOYUTUNU KÜÇÜLTME (SIKIŞTIRMA) ---
+  const resizeImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => {
+          resolve(event.target.result); // Hata olursa orijinalini döndür
+        };
+      };
+      reader.onerror = () => resolve(null);
+    });
+  };
+
+  const handleFileUpload = async (e) => {
     try {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
       setLoading(true);
-      setUploadStatus('Fotoğraf işleniyor...');
+      setUploadStatus('Fotoğraf işleniyor ve analiz ediliyor...');
 
       const file = files[0];
-      const reader = new FileReader();
+      const optimizedBase64 = await resizeImage(file);
       
-      reader.onload = (uploadEvent) => {
-        try {
-          const base64Image = uploadEvent.target.result;
-          processAI(base64Image);
-        } catch (err) {
-          console.error(err);
-          setLoading(false);
-          setUploadStatus('');
-        }
-      };
-
-      reader.onerror = () => {
+      if (!optimizedBase64) {
         setLoading(false);
         setUploadStatus('');
-      };
+        return;
+      }
 
-      reader.readAsDataURL(file);
+      await processAI(optimizedBase64);
     } catch (err) {
-      console.error(err);
+      console.error("Yükleme Hatası:", err);
       setLoading(false);
       setUploadStatus('');
     }
@@ -133,7 +162,6 @@ export default function App() {
 
   const processAI = async (base64Image) => {
     try {
-      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
       const base64Data = base64Image.split(',')[1];
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -153,9 +181,6 @@ export default function App() {
       if (data.error) throw new Error(data.error.message);
       
       const rawText = data.candidates[0].content.parts[0].text;
-      console.log("AI Ham Yanıtı:", rawText);
-      
-      // JSON metnini güvenli bir şekilde ayıkla
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
       
@@ -181,16 +206,19 @@ export default function App() {
       setMeals(prevMeals => {
         const updatedMeals = [...prevMeals, newMeal];
         if (user && !isAdmin) {
-          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
-          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+          try {
+            const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+            const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
+            localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+          } catch (storageErr) {
+            console.error("Storage Kayıt Hatası (Alan Dolmuş Olabilir):", storageErr);
+          }
         }
         return updatedMeals;
       });
       
     } catch (error) {
       console.error("AI Analiz Hatası:", error);
-      // Hata olsa bile kullanıcının fotoğrafı ekranda görünsün diye yedek öğün ekle
       const fallbackMeal = {
         id: Date.now(),
         name: 'Fotoğraftaki Yemek',
@@ -204,9 +232,13 @@ export default function App() {
       setMeals(prevMeals => {
         const updatedMeals = [...prevMeals, fallbackMeal];
         if (user && !isAdmin) {
-          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
-          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+          try {
+            const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+            const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
+            localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+          } catch (e) {
+            console.error(e);
+          }
         }
         return updatedMeals;
       });
@@ -225,9 +257,13 @@ export default function App() {
     setWorkouts(prevWorkouts => {
       const updatedWorkouts = [...prevWorkouts, newWorkout];
       if (user && !isAdmin) {
-        const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-        const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
-        localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+        try {
+          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
+          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+        } catch (e) {
+          console.error(e);
+        }
       }
       return updatedWorkouts;
     });
