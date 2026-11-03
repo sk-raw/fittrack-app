@@ -5,7 +5,7 @@ const path = require('path');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || '2.5-flash';
 
 app.use(express.json({ limit: '10mb' }));
 
