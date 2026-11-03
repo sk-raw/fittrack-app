@@ -40,7 +40,8 @@ function readableGeminiError(status, message) {
   if (status === 401 || status === 403) return `Gemini API anahtarı geçersiz veya bu modele erişim yetkisi yok: ${message}`;
   if (status === 404) return `Gemini modeli veya API adresi bulunamadı. Vercel GEMINI_MODEL değişkenini kontrol edin. Ayrıntı: ${message}`;
   if (status === 429) return `Gemini kullanım kotası veya istek sınırı dolmuş. Google AI Studio'daki kota ve faturalandırma ayarlarını kontrol edin. Ayrıntı: ${message}`;
-  if (status >= 500) return `Google Gemini geçici bir servis hatası verdi (HTTP ${status}). Biraz sonra tekrar deneyin.`;
+  if (status === 503) return 'Google Gemini şu anda yoğun (HTTP 503). Sistem otomatik olarak tekrar denedi ancak servis yanıt vermedi. 30-60 saniye sonra yeniden deneyin.';
+  if (status >= 500) return `Google Gemini geçici bir servis hatası verdi (HTTP ${status}). Sistem otomatik tekrar denedi; biraz sonra yeniden deneyin.`;
   return `Gemini API hatası (HTTP ${status}): ${message}`;
 }
 
@@ -100,39 +101,55 @@ export default async function handler(req, res) {
       'confidence değerini 0 ile 1 arasında ver. Yanıtı yalnızca istenen JSON alanlarıyla döndür.'
     ].join(' ');
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 50_000);
+    // Google can temporarily return 503 when the model is overloaded.
+    // Retry only transient server errors; do not retry quota/auth/client errors.
+    const requestBody = JSON.stringify({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: imageBase64 } }
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: foodJsonSchema,
+        maxOutputTokens: 512
+      }
+    });
 
     let geminiResponse;
-    try {
-      geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey
-          },
-          body: JSON.stringify({
-            contents: [{
-              role: 'user',
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: imageBase64 } }
-              ]
-            }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              responseJsonSchema: foodJsonSchema,
-              maxOutputTokens: 512
-            }
-          }),
-          signal: controller.signal
+    let lastNetworkError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 17_000);
+      try {
+        geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
+            body: requestBody,
+            signal: controller.signal
+          }
+        );
+        if (![500, 502, 503, 504].includes(geminiResponse.status) || attempt === 2) {
+          break;
         }
-      );
-    } finally {
-      clearTimeout(timeout);
+        console.warn(`Gemini temporary HTTP ${geminiResponse.status}; retry ${attempt + 1}/2`);
+      } catch (networkError) {
+        lastNetworkError = networkError;
+        if (attempt === 2) throw networkError;
+        console.warn(`Gemini network attempt ${attempt + 1}/3 failed; retrying`);
+      } finally {
+        clearTimeout(timeout);
+      }
+      await new Promise(resolve => setTimeout(resolve, 700 * (2 ** attempt)));
     }
+    if (!geminiResponse && lastNetworkError) throw lastNetworkError;
 
     const geminiData = await geminiResponse.json().catch(() => ({}));
     if (!geminiResponse.ok) {
