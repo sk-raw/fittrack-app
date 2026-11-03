@@ -102,7 +102,7 @@ export default function App() {
       if (!files || files.length === 0) return;
 
       setLoading(true);
-      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
+      setUploadStatus('Fotoğraf işleniyor...');
 
       const file = files[0];
       const reader = new FileReader();
@@ -133,13 +133,19 @@ export default function App() {
 
   const processAI = async (base64Image) => {
     try {
-      let newMeal;
+      setUploadStatus('Fotoğraf Gemini AI ile analiz ediliyor...');
       const base64Data = base64Image.split(',')[1];
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
+      
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver: {\"name\": \"Yemek Adı\", \"calories\": 100, \"protein\": 10, \"carbs\": 20, \"fat\": 5}" }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
+          contents: [{
+            parts: [
+              { text: "Bu yemek nedir? Sadece şu JSON formatında cevap ver ve başka hiçbir şey yazma: {\"name\": \"Yemek Adı\", \"calories\": 350, \"protein\": 25, \"carbs\": 30, \"fat\": 10}" },
+              { inline_data: { mime_type: "image/jpeg", data: base64Data } }
+            ]
+          }]
         })
       });
 
@@ -150,7 +156,12 @@ export default function App() {
       const cleanJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const aiResult = JSON.parse(cleanJsonText);
       
-      newMeal = { ...aiResult, id: Date.now() + Math.random(), date: selectedDate, image: base64Image };
+      const newMeal = { 
+        ...aiResult, 
+        id: Date.now() + Math.random(), 
+        date: selectedDate, 
+        image: base64Image 
+      };
 
       setMeals(prevMeals => {
         const updatedMeals = [...prevMeals, newMeal];
@@ -163,18 +174,8 @@ export default function App() {
       });
       
     } catch (error) {
-      console.error(error);
-      const fallbackMeal = {
-        id: Date.now(),
-        name: 'Analiz Edilen Öğün',
-        calories: 450,
-        protein: 30,
-        carbs: 40,
-        fat: 12,
-        date: selectedDate,
-        image: base64Image
-      };
-      setMeals(prev => [...prev, fallbackMeal]);
+      console.error("AI Hatası:", error);
+      setUploadStatus('Analiz başarısız oldu, tekrar deneyin.');
     } finally {
       setLoading(false);
       setUploadStatus('');
