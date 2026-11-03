@@ -1,12 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus } from 'lucide-react';
 
-const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog"; // Buraya Gemini API anahtarını gir
+const GEMINI_API_KEY = ""; // Buraya Gemini API anahtarını gir
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [view, setView] = useState('login'); 
+  const [view, setView] = useState('login'); // login, register, dashboard, admin
   const [authError, setAuthError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -23,20 +23,65 @@ export default function App() {
   const [showWorkoutForm, setShowWorkoutForm] = useState(false);
   const [workoutData, setWorkoutData] = useState({ name: '', calories: '' });
 
+  // Form Input State'leri
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const fileInputRef = useRef(null);
 
-  const handleAuth = (e, isLogin) => {
+  // --- KAYIT OLMA İŞLEMİ ---
+  const handleRegister = (e) => {
     e.preventDefault();
     setAuthError('');
-    if (!email.includes('@')) {
-      setAuthError('Geçersiz e-posta adresi.');
+    if (!email.includes('@') || password.length < 6) {
+      setAuthError('Geçerli bir e-posta ve en az 6 karakterli şifre girin.');
       return;
     }
-    const mockUser = { uid: '123', email: email };
-    setUser(mockUser);
+
+    // Kayıtlı kullanıcıları localStorage'dan al
+    const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+    const userExists = existingUsers.some(u => u.email === email);
+
+    if (userExists) {
+      setAuthError('Bu e-posta adresi zaten kayıtlı. Lütfen giriş yapın.');
+      return;
+    }
+
+    // Yeni kullanıcıyı kaydet
+    const newUser = { email, password };
+    existingUsers.push(newUser);
+    localStorage.setItem('fittrack_users', JSON.stringify(existingUsers));
+
+    // Otomatik giriş yap
+    setUser(newUser);
     setIsAdmin(email === 'samet@fittrack.com' || email === 'admin@fittrack.com');
+    setView('dashboard');
+  };
+
+  // --- GİRİŞ YAPMA İŞLEMİ ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setAuthError('');
+    
+    // Özel Admin / Test Hesapları
+    if ((email === 'samet@fittrack.com' || email === 'admin@fittrack.com') && password) {
+      const adminUser = { email };
+      setUser(adminUser);
+      setIsAdmin(true);
+      setView('dashboard');
+      return;
+    }
+
+    // Kayıtlı kullanıcıları kontrol et
+    const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+    const foundUser = existingUsers.find(u => u.email === email && u.password === password);
+
+    if (!foundUser) {
+      setAuthError('E-posta adresi veya şifre hatalı.');
+      return;
+    }
+
+    setUser(foundUser);
+    setIsAdmin(false);
     setView('dashboard');
   };
 
@@ -106,7 +151,6 @@ export default function App() {
     setShowWorkoutForm(false);
   };
 
-  // Hesaplamalar
   const todaysMeals = meals.filter(m => m.date === selectedDate);
   const todaysWorkouts = workouts.filter(w => w.date === selectedDate);
   
@@ -115,10 +159,9 @@ export default function App() {
   const totalCarbs = todaysMeals.reduce((acc, meal) => acc + meal.carbs, 0);
   const totalFat = todaysMeals.reduce((acc, meal) => acc + meal.fat, 0);
   const burnedCalories = todaysWorkouts.reduce((acc, workout) => acc + workout.calories, 0);
-
-  // Net Kalori: Alınan - Yakılan
   const netCalories = Math.max(0, totalCalories - burnedCalories);
 
+  // --- GİRİŞ EKRANI ---
   if (view === 'login') {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
@@ -127,7 +170,15 @@ export default function App() {
             <Activity className="w-8 h-8 text-emerald-500" />
             <h1 className="text-3xl font-bold text-white tracking-tight">FitTrack</h1>
           </div>
-          <form className="space-y-4" onSubmit={(e) => handleAuth(e, true)}>
+
+          {authError && (
+            <div className="mb-4 p-3 bg-red-950/50 border border-red-900 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <p>{authError}</p>
+            </div>
+          )}
+
+          <form className="space-y-4" onSubmit={handleLogin}>
             <div>
               <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">E-Posta</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="ornek@eposta.com" required />
@@ -136,13 +187,55 @@ export default function App() {
               <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">Şifre</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="••••••••" required />
             </div>
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg mt-2">Giriş Yap / Kayıt Ol</button>
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg mt-2 transition-colors">Giriş Yap</button>
           </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-zinc-400">Hesabın yok mu? <button onClick={() => { setAuthError(''); setView('register'); }} className="text-emerald-400 font-semibold hover:underline">Kayıt Ol</button></p>
+          </div>
         </div>
       </div>
     );
   }
 
+  // --- KAYIT OLMA EKRANI ---
+  if (view === 'register') {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md bg-zinc-900 rounded-2xl border border-zinc-800 p-6 shadow-2xl">
+          <div className="flex items-center justify-center gap-3 mb-8">
+            <Activity className="w-8 h-8 text-emerald-500" />
+            <h1 className="text-3xl font-bold text-white tracking-tight">Kayıt Ol</h1>
+          </div>
+
+          {authError && (
+            <div className="mb-4 p-3 bg-red-950/50 border border-red-900 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <p>{authError}</p>
+            </div>
+          )}
+
+          <form className="space-y-4" onSubmit={handleRegister}>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">E-Posta</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="ornek@eposta.com" required />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">Şifre (En az 6 karakter)</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="••••••••" required />
+            </div>
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg mt-2 transition-colors">Hesap Oluştur</button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-zinc-400">Zaten hesabın var mı? <button onClick={() => { setAuthError(''); setView('login'); }} className="text-emerald-400 font-semibold hover:underline">Giriş Yap</button></p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- ANA UYGULAMA EKRANI ---
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-300 font-sans pb-32 selection:bg-emerald-500/30">
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-4 py-3">
@@ -168,7 +261,7 @@ export default function App() {
         {view === 'admin' && isAdmin ? (
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-amber-500" /> Yönetici Paneli</h2>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400">Veritabanı bağlandığında kullanıcı analizleri burada görünecek.</div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400">Sistem yöneticisi paneline hoş geldiniz. Kayıtlı kullanıcı verileri burada yönetilebilir.</div>
           </div>
         ) : (
           <>
