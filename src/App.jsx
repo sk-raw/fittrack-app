@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Camera, LogOut, Shield, Activity, Flame, AlertCircle, Image as ImageIcon, Settings, Dumbbell, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 
-const GEMINI_API_KEY = "AQ.Ab8RN6KHBximxHIj4PxmkV-047eUORytOYh6qEtMfRGr8v1wog"; // Buraya Gemini API anahtarını gir
+const GEMINI_API_KEY = "BURAYA_API_ANAHTARINI_YAZ"; // Gemini API anahtarını buraya ekle
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -110,19 +110,23 @@ export default function App() {
         await processAI(reader.result);
       };
     }
-    
-    setTimeout(() => {
-      setLoading(false);
-      setUploadStatus('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }, 2000);
   };
 
   const processAI = async (base64Image) => {
     try {
       let newMeal;
-      if (!GEMINI_API_KEY) {
-        newMeal = { id: Date.now(), name: 'Izgara Tavuk ve Pilav (Demo AI)', calories: 550, protein: 45, carbs: 50, fat: 15, date: selectedDate, image: base64Image };
+      // Eğer API anahtarı girilmemişse veya boşsa demo sonuç üret
+      if (!GEMINI_API_KEY || GEMINI_API_KEY === "BURAYA_API_ANAHTARINI_YAZ") {
+        newMeal = { 
+          id: Date.now() + Math.random(), 
+          name: 'Izgara Tavuk ve Pilav (Demo AI)', 
+          calories: 550, 
+          protein: 45, 
+          carbs: 50, 
+          fat: 15, 
+          date: selectedDate, // O an takvimde seçili olan tarihe eklenir
+          image: base64Image 
+        };
       } else {
         const base64Data = base64Image.split(',')[1];
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GEMINI_API_KEY}`, {
@@ -136,21 +140,28 @@ export default function App() {
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
         const aiResult = JSON.parse(data.candidates[0].content.parts[0].text);
-        newMeal = { ...aiResult, id: Date.now(), date: selectedDate, image: base64Image };
+        newMeal = { ...aiResult, id: Date.now() + Math.random(), date: selectedDate, image: base64Image };
       }
 
-      const updatedMeals = [...meals, newMeal];
-      setMeals(updatedMeals);
-
-      // Kullanıcı verisini localStorage'da güncelle
-      if (user && !isAdmin) {
-        const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-        const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
-        localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
-      }
+      setMeals(prevMeals => {
+        const updatedMeals = [...prevMeals, newMeal];
+        
+        // Kullanıcı verisini localStorage'da güncelle
+        if (user && !isAdmin) {
+          const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+          const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, meals: updatedMeals } : u);
+          localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+        }
+        
+        return updatedMeals;
+      });
       
     } catch (error) {
       setUploadStatus(`Analiz Hatası: ${error.message}`);
+    } finally {
+      setLoading(false);
+      setUploadStatus('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -158,16 +169,19 @@ export default function App() {
     e.preventDefault();
     if (!workoutData.name || !workoutData.calories) return;
     const newWorkout = { id: Date.now(), date: selectedDate, name: workoutData.name, calories: parseInt(workoutData.calories) };
-    const updatedWorkouts = [...workouts, newWorkout];
-    setWorkouts(updatedWorkouts);
+    
+    setWorkouts(prevWorkouts => {
+      const updatedWorkouts = [...prevWorkouts, newWorkout];
+      if (user && !isAdmin) {
+        const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
+        const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
+        localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
+      }
+      return updatedWorkouts;
+    });
+
     setWorkoutData({ name: '', calories: '' });
     setShowWorkoutForm(false);
-
-    if (user && !isAdmin) {
-      const existingUsers = JSON.parse(localStorage.getItem('fittrack_users') || '[]');
-      const updatedUsers = existingUsers.map(u => u.email === user.email ? { ...u, workouts: updatedWorkouts } : u);
-      localStorage.setItem('fittrack_users', JSON.stringify(updatedUsers));
-    }
   };
 
   const todaysMeals = meals.filter(m => m.date === selectedDate);
@@ -285,6 +299,12 @@ export default function App() {
       </header>
 
       <main className="max-w-md mx-auto p-4 space-y-6">
+        {loading && (
+          <div className="p-3 bg-emerald-950/40 border border-emerald-900/50 rounded-xl text-emerald-400 text-sm text-center animate-pulse">
+            {uploadStatus}
+          </div>
+        )}
+
         {view === 'admin' && isAdmin ? (
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-amber-500" /> Yönetici Paneli</h2>
@@ -483,7 +503,7 @@ export default function App() {
 
               {showWorkoutForm && (
                 <form onSubmit={handleAddWorkout} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 space-y-3">
-                  <input type="text" placeholder="Antrenman (örn: Koşu, Ağırlık)" value={workoutData.name} onChange={e => setWorkoutData({...workoutData, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
+                  <input type="text" placeholder="Antrenman (örn: Koşu, Ağırlık)" value={workoutData.name} onChange={e => setShowWorkoutForm({...workoutData, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
                   <div className="flex gap-2">
                     <input type="number" placeholder="Yakılan Kalori" value={workoutData.calories} onChange={e => setWorkoutData({...workoutData, calories: e.target.value})} className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-emerald-500 outline-none" required />
                     <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 rounded-lg font-medium">Kaydet</button>
