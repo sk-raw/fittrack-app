@@ -1,16 +1,40 @@
-# React + Vite
+# FitTrack
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Fotoğraf analizi düzeltmesi
 
-Currently, two official plugins are available:
+- Gemini yapılandırılmış yanıtı her besin için porsiyon gramı ve 100g besin değerleri içerir.
+- Kalori, protein, karbonhidrat ve yağ toplamlarını uygulama hesaplar. Gramaj düzenlemesi tüm değerleri yeniler.
+- Etiket okunabiliyorsa etiket, aksi halde genel besin tahmini kullanılır. Tahminler doğrulanmış bir besin veritabanı sonucu değildir.
+- Kesik/boş JSON, eksik makro, gerçekçi olmayan değer, kota, bağlantı ve süre hataları kontrol edilir.
+- İki istek denemesi toplamda Vercel 60 saniye sınırının altında tutulur.
+- Yerel sunucu, Vercel API kodunu kullanır. API anahtarı tarayıcıya gönderilmez.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Çalıştırma
 
-## React Compiler
+Node.js 22.12+ veya 24 kullanın.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```sh
+npm ci
+cp .env.example .env
+# .env içine kendi GEMINI_API_KEY değerinizi ekleyin.
+npm run dev:api
+# İkinci terminalde:
+npm run dev
+```
 
-## Expanding the ESLint configuration
+```sh
+npm test
+npm run build
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Vercel
+
+Bu değişiklikleri bağlı GitHub deposunun üretim dalına aktarın. Vercel'de GEMINI_API_KEY sunucu ortam değişkeni gerekir. GEMINI_MODEL isteğe bağlıdır; varsayılan gemini-2.5-flash. Eski/geçersiz bir model değişkeni varsa kaldırın veya desteklenen modelle değiştirin. Anahtarı VITE_ önekiyle tanımlamayın. Ardından yeniden deploy edin.
+
+## Doğrulama durumu
+
+8 otomatik test ve üretim derlemesi geçti. Testlerde Google yanıtları taklit edilmiştir; gerçek API anahtarıyla fotoğraf doğruluğu/kota/model erişimi henüz doğrulanmamıştır. Fotoğraf gramajı, yağ/sos miktarı ve etiket okunurluğu sonucu etkiler. Kalori/makro kontrolü fotoğraftaki ürünü doğru tanıdığını kanıtlamaz.
+
+## Mevcut erişim sistemi
+
+Mevcut uygulamanın giriş sistemi tarayıcı localStorage verilerine dayanır. Üretimde gerçek hesap ve sağlık verileri için sunucuda kimlik doğrulama ve kullanıcı bazında yetkilendirme ayrıca gerekir. Sabit yönetici girişi kaldırıldı. Yerel şifreler PBKDF2 ile özetlenir; eski hesaplar başarılı girişte taşınır. Bu hâlâ yerel prototip erişimidir, gerçek sunucu yetkilendirmesi değildir.

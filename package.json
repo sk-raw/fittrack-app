@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test",
+    "dev:api": "node server.cjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.4",
